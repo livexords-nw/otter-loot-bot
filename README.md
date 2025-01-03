@@ -61,7 +61,7 @@ Start using Otter Loot by registering through the following link:
    Move to the project directory:
 
    ```bash
-   cd lotter-loot-bot
+   cd otter-loot-bot
    ```
 
 3. **Install Dependencies**  
