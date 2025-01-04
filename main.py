@@ -566,53 +566,65 @@ class otterloot:
 
             # Repair broken parts
             for part in parts:
-                if part.get("broken", False):
-                    part_type = part.get("type")
-                    self.log(f"🔧 Repairing broken part type {part_type}...", Fore.YELLOW)
-                    repair_url = f"{self.BASE_URL}v1/otter/repair"
-                    repair_payload = {"part": part_type}
-                    repair_response = requests.post(repair_url, headers=headers, json=repair_payload)
-                    repair_response.raise_for_status()
-                    repair_data = repair_response.json()
-                    if repair_data.get("success", False):
-                        self.log("✅ Repair successful!", Fore.LIGHTGREEN_EX)
-                    else:
-                        self.log("❌ Repair failed.", Fore.RED)
+                try:
+                    if part.get("broken", False):
+                        part_type = part.get("type")
+                        self.log(f"🔧 Repairing broken part type {part_type}...", Fore.YELLOW)
+                        repair_url = f"{self.BASE_URL}v1/otter/repair"
+                        repair_payload = {"part": part_type}
+                        repair_response = requests.post(repair_url, headers=headers, json=repair_payload)
+                        repair_response.raise_for_status()
+                        repair_data = repair_response.json()
+                        if repair_data.get("success", False):
+                            self.log("✅ Repair successful!", Fore.LIGHTGREEN_EX)
+                        else:
+                            self.log(f"❌ Repair failed for part type {part_type}.", Fore.RED)
+                except Exception as e:
+                    self.log(f"❌ Error repairing part type {part.get('type')}: {e}", Fore.RED)
 
             # Upgrade parts
             for part in parts:
-                if total_medals >= 200:
-                    self.log("🏁 Total medals reached 200. Stopping upgrades.", Fore.LIGHTMAGENTA_EX)
-                    break
+                try:
+                    while total_medals < 200:  # Loop until we reach the medal limit
+                        if part.get("stars", 0) < 3 and not part.get("broken", False):
+                            part_type = part.get("type")
+                            self.log(f"⬆️ Upgrading part type {part_type}...", Fore.CYAN)
+                            upgrade_url = f"{self.BASE_URL}v1/otter/upgrade"
+                            upgrade_payload = {"part": part_type}
+                            upgrade_response = requests.post(upgrade_url, headers=headers, json=upgrade_payload)
+                            upgrade_response.raise_for_status()
+                            upgrade_data = upgrade_response.json()
 
-                if part.get("stars", 0) < 3 and not part.get("broken", False):  # Upgrade parts with less than 3 stars
-                    part_type = part.get("type")
-                    self.log(f"⬆️ Upgrading part type {part_type}...", Fore.CYAN)
-                    upgrade_url = f"{self.BASE_URL}v1/otter/upgrade"
-                    upgrade_payload = {"part": part_type}
-                    upgrade_response = requests.post(upgrade_url, headers=headers, json=upgrade_payload)
-                    upgrade_response.raise_for_status()
-                    upgrade_data = upgrade_response.json()
-                    if upgrade_data.get("success", False):
-                        medal = upgrade_data.get("data", {}).get("medal", 0)
-                        total_medals += medal
-                        self.log(f"🏅 Upgrade successful! Earned {medal} medals. Total medals: {total_medals}", Fore.LIGHTGREEN_EX)
+                            if upgrade_data.get("success", False):
+                                # Check if the error is due to insufficient coins
+                                if "not enough coins" in upgrade_data.get("message", "").lower():
+                                    self.log(f"💰 Not enough coins to upgrade part type {part_type}.", Fore.RED)
+                                else:
+                                    self.log(f"❌ Upgrade failed for part type {part_type}.", Fore.RED)
+                            else:
+                                medal = upgrade_data.get("data", {}).get("medal", 0)
+                                total_medals += medal
+                                self.log(f"🏅 Upgrade successful! Earned {medal} medals. Total medals: {total_medals}", Fore.LIGHTGREEN_EX)
 
-                        if total_medals >= 200:
-                            self.log("🏁 Total medals reached 200. Stopping upgrades.", Fore.LIGHTMAGENTA_EX)
+                                if total_medals >= 200:
+                                    self.log("🏁 Total medals reached 200. Stopping upgrades.", Fore.LIGHTMAGENTA_EX)
+                                    break
+                        else:
                             break
-                    else:
-                        self.log("❌ Upgrade failed.", Fore.RED)
+                except Exception as e:
+                    self.log(f"❌ Error upgrading part type {part.get('type')}: {e}", Fore.RED)
 
-            if total_medals < 200:
-                self.log("✅ All parts are maxed out or cannot be upgraded further.", Fore.LIGHTMAGENTA_EX)
+            self.log("✅ Finished processing all parts.", Fore.LIGHTMAGENTA_EX)
 
         except requests.exceptions.RequestException as e:
             self.log(f"❌ Failed to perform Otter operations: {e}", Fore.RED)
+            self.log(f"📄 Response content: {response.text}", Fore.RED)
         except ValueError as e:
             self.log(f"❌ Data error during Otter operations: {e}", Fore.RED)
+            self.log(f"📄 Response content: {response.text}", Fore.RED)
         except Exception as e:
             self.log(f"❗ An unexpected error occurred during Otter operations: {e}", Fore.RED)
+            self.log(f"📄 Response content: {response.text}", Fore.RED)
 
 if __name__ == "__main__":
     otter = otterloot()

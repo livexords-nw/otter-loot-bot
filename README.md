@@ -20,20 +20,21 @@ With this bot, you can save time and maximize your outcomes without manual inter
 
 ---
 
-## 🌟 **Version v1.0.1**
+## 🌟 **Version v1.0.2**
 
 ### 🔄 **Updates**
-- **Bug Fix:** Improved the logic for the steal feature to handle the following:
-  - Stops attempts if the error is related to request limits.
-  - Continues retrying if the error is related to the target.
-  - Avoids reusing positions that have already been attempted.
-- Enhanced randomization for steal positions, now ranging from 1 to 10.
-- Added a maximum error limit to prevent infinite loops during failed attempts.
+- **Feature Enhancement:** Improved the `Otter Manager` functionality:
+  - Ensures all part types are processed sequentially without skipping.
+  - Added more detailed logging to track:
+    - Repairs for broken parts.
+    - Upgrade attempts, including reasons for failures (e.g., insufficient coins).
+    - Successes, medals earned, and overall progress.
+  - Implements continuous processing until all parts are either repaired or upgraded to the maximum allowed level.
+- **Code Optimization:** Enhanced error-handling mechanisms for better resilience against server-side errors and invalid responses.
 
-### 🐛 **Bug Fix Details**
-- Fixed an issue where the steal process would retry the same positions multiple times.
-- Resolved a problem where the steal process did not properly handle error responses from the server, leading to unintended behaviors.
-- Optimized error handling for better user feedback and smoother execution.
+### 🛠️ **Bug Fix Details**
+- Resolved an issue where the process would stop prematurely if an error occurred during the repair or upgrade of a part.
+- Improved log readability for easier debugging and monitoring of Otter operations.
 
 ---
 
