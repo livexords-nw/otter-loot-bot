@@ -20,7 +20,7 @@ With this bot, you can save time and maximize your outcomes without manual inter
 
 ---
 
-## 🌟 **Version v1.0.0**
+## 🌟 **Version v1.0.1**
 
 ---
 

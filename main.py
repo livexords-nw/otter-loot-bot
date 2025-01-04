@@ -381,25 +381,45 @@ class otterloot:
             self.log(f"❗ An unexpected error occurred during raid: {e}", Fore.RED)
 
     def perform_steal_attempts(self) -> None:
-        """Performs up to three steal attempts after a jackpot."""
+        """Performs steal attempts until an error or success condition is met."""
         req_url_steal = f"{self.BASE_URL}v1/game/steal"
         headers = {
             **self.HEADERS,
             "authorization": f"Bearer {self.token}"
         }
 
-        for attempt in range(1, 4):  # Up to 3 attempts
-            position = random.randint(1, 5)
+        max_errors = 5  # Stop after 5 consecutive errors
+        error_count = 0
+        used_positions = set()
+
+        while error_count < max_errors:
+            position = random.randint(1, 10)
+
+            # Skip already used positions
+            if position in used_positions:
+                continue
+
             payload = {"position": position}
+            used_positions.add(position)
 
             try:
-                self.log(f"🚀 Attempt {attempt}: Trying to steal at position {position}...", Fore.CYAN)
+                self.log(f"🚀 Attempting to steal at position {position}...", Fore.CYAN)
                 response = requests.post(req_url_steal, headers=headers, json=payload)
                 response.raise_for_status()
 
                 steal_data = response.json()
+
                 if not steal_data.get("success", False):
-                    self.log(f"⚠️ Steal attempt {attempt} failed.", Fore.YELLOW)
+                    self.log(f"⚠️ Steal attempt failed: {steal_data.get('message', 'Unknown error')}", Fore.YELLOW)
+                    
+                    # Check if the error is related to the target or limit
+                    if "target" in steal_data.get("message", "").lower():
+                        continue  # Skip and try again
+                    elif "limit" in steal_data.get("message", "").lower():
+                        self.log("⛔ Limit reached, stopping attempts.", Fore.RED)
+                        break
+
+                    error_count += 1
                     continue
 
                 reward = steal_data.get("data", {}).get("reward", {})
@@ -408,13 +428,20 @@ class otterloot:
                     reward_type = reward.get("type", "Unknown")
                     amount = reward.get("amount", {}).get("value", 0)
                     self.log(f"💰 Steal Success: Kind {kind}, Type {reward_type}, Amount: {amount}", Fore.LIGHTGREEN_EX)
+                    break  # Stop if steal was successful
                 else:
-                    self.log(f"🎯 Attempt {attempt}: No reward found.", Fore.YELLOW)
+                    self.log(f"🎯 Attempt failed: No reward found.", Fore.YELLOW)
+                    error_count += 1
 
             except requests.exceptions.RequestException as e:
-                self.log(f"❌ Failed to perform steal attempt {attempt}: {e}", Fore.RED)
+                self.log(f"❌ Request failed: {e}", Fore.RED)
+                error_count += 1
             except Exception as e:
-                self.log(f"❗ An unexpected error occurred during attempt {attempt}: {e}", Fore.RED)
+                self.log(f"❗ An unexpected error occurred: {e}", Fore.RED)
+                error_count += 1
+
+        if error_count >= max_errors:
+            self.log("🛑 Maximum error limit reached. Stopping attempts.", Fore.RED)
 
     def quest(self) -> None:
         """Fetches available quests and special quests, then attempts to complete them."""
