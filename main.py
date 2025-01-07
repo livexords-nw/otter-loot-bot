@@ -353,10 +353,23 @@ class otterloot:
             self.log(f"🎯 Target User: {target_user['firstName']}", Fore.LIGHTGREEN_EX)
             self.log(f"🦦 Target Otter Level: {target_otter['level']}, Stars: {target_otter['totalStars']}", Fore.LIGHTGREEN_EX)
 
+            # Find the target part to raid
+            parts = target_otter["parts"]
+            broken_parts = [part for part in parts if part["broken"]]
+
+            if broken_parts:
+                # Prioritize broken parts with the lowest stars
+                target_part = min(broken_parts, key=lambda x: x["stars"])
+            else:
+                # If no broken parts, choose the part with the lowest stars
+                target_part = min(parts, key=lambda x: x["stars"])
+
+            self.log(f"⚔️ Targeting part type: {target_part['type']} (Stars: {target_part['stars']}, Broken: {target_part['broken']})", Fore.YELLOW)
+
             # Perform raid
             raid_payload = {
                 "goldenPunch": False,
-                "part": 1,
+                "part": target_part["type"],
                 "type": 1,
                 "userId": target_user["id"]
             }
@@ -368,6 +381,48 @@ class otterloot:
             raid_data = raid_response.json()
             if not raid_data.get("success", False):
                 self.log("❌ Raid failed. No rewards obtained.", Fore.RED)
+
+                # Check if golden punch is available
+                golden_punch_info = raid_data["data"].get("goldenPunch", {})
+                if golden_punch_info.get("canPunch", False):
+                    self.log("✨ Golden Punch is available! Fetching raid info again for efficiency...", Fore.CYAN)
+
+                    # Fetch raid information again
+                    raid_info_response = requests.get(raid_info_url, headers=headers)
+                    raid_info_response.raise_for_status()
+                    raid_info_data = raid_info_response.json()
+
+                    if not raid_info_data.get("success", False):
+                        raise ValueError("Raid info request failed after golden punch.")
+
+                    target_user = raid_info_data["data"]["user"]
+                    target_otter = raid_info_data["data"]["otter"]
+
+                    # Re-select the target part
+                    parts = target_otter["parts"]
+                    broken_parts = [part for part in parts if part["broken"]]
+
+                    if broken_parts:
+                        target_part = min(broken_parts, key=lambda x: x["stars"])
+                    else:
+                        target_part = min(parts, key=lambda x: x["stars"])
+
+                    self.log(f"⚔️ Retargeting part type: {target_part['type']} (Stars: {target_part['stars']}, Broken: {target_part['broken']})", Fore.YELLOW)
+
+                    # Perform golden punch raid
+                    raid_payload["goldenPunch"] = True
+                    self.log("✨ Initiating Golden Punch raid...", Fore.YELLOW)
+                    raid_response = requests.post(raid_url, headers=headers, json=raid_payload)
+                    raid_response.raise_for_status()
+
+                    raid_data = raid_response.json()
+
+                    if raid_data.get("success", False):
+                        reward = raid_data["data"]["reward"]
+                        self.log(f"🏆 Golden Punch Reward: Kind {reward['kind']}, Type {reward['type']}, Amount: {reward['amount']['value']}", Fore.LIGHTGREEN_EX)
+                    else:
+                        self.log("❌ Golden Punch raid failed.", Fore.RED)
+
                 return
 
             reward = raid_data["data"]["reward"]
@@ -375,10 +430,13 @@ class otterloot:
 
         except requests.exceptions.RequestException as e:
             self.log(f"❌ Failed to fetch raid information or perform raid: {e}", Fore.RED)
+            self.log(f"📄 Response content: {response.text}", Fore.RED)
         except ValueError as e:
             self.log(f"❌ Data error during raid: {e}", Fore.RED)
+            self.log(f"📄 Response content: {response.text}", Fore.RED)
         except Exception as e:
             self.log(f"❗ An unexpected error occurred during raid: {e}", Fore.RED)
+            self.log(f"📄 Response content: {response.text}", Fore.RED)
 
     def perform_steal_attempts(self) -> None:
         """Performs steal attempts until an error or success condition is met."""
@@ -393,7 +451,7 @@ class otterloot:
         used_positions = set()
 
         while error_count < max_errors:
-            position = random.randint(1, 10)
+            position = random.randint(1, 5)
 
             # Skip already used positions
             if position in used_positions:
@@ -435,9 +493,11 @@ class otterloot:
 
             except requests.exceptions.RequestException as e:
                 self.log(f"❌ Request failed: {e}", Fore.RED)
+                self.log(f"📄 Response content: {response.text}", Fore.RED)
                 error_count += 1
             except Exception as e:
                 self.log(f"❗ An unexpected error occurred: {e}", Fore.RED)
+                self.log(f"📄 Response content: {response.text}", Fore.RED)
                 error_count += 1
 
         if error_count >= max_errors:
@@ -516,17 +576,23 @@ class otterloot:
 
                     except requests.exceptions.RequestException as e:
                         self.log(f"❌ Failed to perform {quest_type} quest ID {quest_id}: {e}", Fore.RED)
+                        self.log(f"📄 Response content: {response.text}", Fore.RED)
                     except ValueError as e:
                         self.log(f"❌ Data error for {quest_type} quest ID {quest_id}: {e}", Fore.RED)
+                        self.log(f"📄 Response content: {response.text}", Fore.RED)
                     except Exception as e:
                         self.log(f"❗ An unexpected error occurred for {quest_type} quest ID {quest_id}: {e}", Fore.RED)
+                        self.log(f"📄 Response content: {response.text}", Fore.RED)
 
             except requests.exceptions.RequestException as e:
                 self.log(f"❌ Failed to fetch {quest_type} quest list: {e}", Fore.RED)
+                self.log(f"📄 Response content: {response.text}", Fore.RED)
             except ValueError as e:
                 self.log(f"❌ Data error while fetching {quest_type} quest list: {e}", Fore.RED)
+                self.log(f"📄 Response content: {response.text}", Fore.RED)
             except Exception as e:
                 self.log(f"❗ An unexpected error occurred while fetching {quest_type} quest list: {e}", Fore.RED)
+                self.log(f"📄 Response content: {response.text}", Fore.RED)
 
         # Process regular quests
         fetch_and_complete_quests(f"{self.BASE_URL}v1/quest", "regular")
@@ -579,8 +645,10 @@ class otterloot:
                             self.log("✅ Repair successful!", Fore.LIGHTGREEN_EX)
                         else:
                             self.log(f"❌ Repair failed for part type {part_type}.", Fore.RED)
+                            self.log(f"📄 Response content: {response.text}", Fore.RED)
                 except Exception as e:
                     self.log(f"❌ Error repairing part type {part.get('type')}: {e}", Fore.RED)
+                    self.log(f"📄 Response content: {response.text}", Fore.RED)
 
             # Upgrade parts
             for part in parts:
@@ -626,6 +694,49 @@ class otterloot:
             self.log(f"❗ An unexpected error occurred during Otter operations: {e}", Fore.RED)
             self.log(f"📄 Response content: {response.text}", Fore.RED)
 
+    def buy(self, type: str = "gold") -> None:
+        """Handles purchase operations in the Otter game.
+
+        Args:
+            type (str): The type of item to buy. Defaults to 'gold'.
+        """
+        shop_url = f"{self.BASE_URL}shop/buy-currency"
+        headers = {
+            **self.HEADERS,
+            "authorization": f"Bearer {self.token}"
+        }
+
+        # Determine payload based on type
+        if type == "gold":
+            payload = {"packID": 3, "packType": 2}
+        elif type == "energy":
+            payload = {"packID": 3, "packType": 3}
+        else:
+            self.log(f"❌ Invalid purchase type: {type}", Fore.RED)
+            return
+
+        try:
+            self.log(f"🛒 Attempting to buy {type}...", Fore.CYAN)
+            response = requests.post(shop_url, headers=headers, json=payload)
+            response.raise_for_status()
+
+            response_data = response.json()
+            if not response_data.get("success", False):
+                self.log(f"❌ Purchase failed. Message: {response_data.get('message', 'No message provided.')}", Fore.RED)
+                return
+
+            self.log(f"✅ Successfully purchased {type}.", Fore.LIGHTGREEN_EX)
+
+        except requests.exceptions.RequestException as e:
+            self.log(f"❌ Failed to perform Otter operations: {e}", Fore.RED)
+            self.log(f"📄 Response content: {response.text}", Fore.RED)
+        except ValueError as e:
+            self.log(f"❌ Data error during Otter operations: {e}", Fore.RED)
+            self.log(f"📄 Response content: {response.text}", Fore.RED)
+        except Exception as e:
+            self.log(f"❗ An unexpected error occurred during Otter operations: {e}", Fore.RED)
+            self.log(f"📄 Response content: {response.text}", Fore.RED)
+
 if __name__ == "__main__":
     otter = otterloot()
     index = 0
@@ -649,6 +760,7 @@ if __name__ == "__main__":
             "spin": "🎰 Spin the Wheel",
             "quest": "📜 Quest Solver",
             "otter": "🦦 Otter Manager",
+            "buy": "💰 Purchase Items",
         }
 
         for task_key, task_name in tasks.items():
@@ -657,7 +769,11 @@ if __name__ == "__main__":
 
             if task_status:
                 otter.log(f"🔄 Executing {task_name}...", Fore.CYAN)
-                getattr(otter, task_key)()
+                if task_key == "buy":
+                    type_buy = config.get("type_buy", "gold")
+                    otter.buy(type_buy)
+                else:
+                    getattr(otter, task_key)()
 
         if index == max_index - 1:
             otter.log("🔁 All accounts processed. Restarting loop.", Fore.LIGHTGREEN_EX)

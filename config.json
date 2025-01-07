@@ -2,6 +2,8 @@
     "spin": true,
     "quest": true,
     "otter": true,
+    "buy": true,
+    "type_buy": "gold",  
     "delay_loop": 3000,
     "delay_account_switch": 10
 }
