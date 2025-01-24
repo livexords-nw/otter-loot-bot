@@ -21,28 +21,11 @@ With this bot, you can save time and maximize your outcomes without manual inter
 
 ---
 
-## 🌟 **Version v1.1.2**
+## 🌟 **Version v1.1.3**
 
 ### 🔄 **Updates**
 
-- **Feature Enhancement:** Improved the `Otter Manager` functionality:
-  - Ensures all part types are processed sequentially without skipping.
-  - Added more detailed logging to track:
-    - Repairs for broken parts.
-    - Upgrade attempts, including reasons for failures (e.g., insufficient coins).
-    - Successes, medals earned, and overall progress.
-  - Implements continuous processing until all parts are either repaired or upgraded to the maximum allowed level.
-- **Code Optimization:** Enhanced error-handling mechanisms for better resilience against server-side errors and invalid responses.
-- **Raid System:** Added support for the Golden Punch feature, including automatic re-fetching of raid information when necessary.
-- **Steal Mechanism:** Improved the steal system for better handling of target selection and raid logic.
-- **Purchase Feature:** Introduced a feature to buy gold or energy, configurable via the `type_buy` option, with enhanced logging and error handling.
-- **Detailed Logging:** Added new loggers in various sections to provide better insights and debugging capabilities during operations.
-
-### 🛠️ **Bug Fix Details**
-
-- Resolved an issue where the process would stop prematurely if an error occurred during the repair or upgrade of a part.
-- Fixed potential errors in the raid system when processing targets with incomplete data.
-- Improved log readability for easier debugging and monitoring of Otter operations.
+1. Fixed a bug in the energy and gold purchasing system.
 
 ---
 
@@ -78,7 +61,7 @@ Start using Otter Loot by registering through the following link:
    Copy the project to your local machine:
 
    ```bash
-   git clone https://github.com/username/otter-loot-bot.git
+   git clone https://github.com/livexords-nw/otter-loot-bot.git
    ```
 
 2. **Navigate to the Project Folder**  

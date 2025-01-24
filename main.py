@@ -700,7 +700,7 @@ class otterloot:
         Args:
             type (str): The type of item to buy. Defaults to 'gold'.
         """
-        shop_url = f"{self.BASE_URL}shop/buy-currency"
+        shop_url = f"{self.BASE_URL}v1/shop/buy-currency"
         headers = {
             **self.HEADERS,
             "authorization": f"Bearer {self.token}"
