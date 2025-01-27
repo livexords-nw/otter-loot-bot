@@ -506,7 +506,7 @@ class otterloot:
     def quest(self) -> None:
         """Fetches available quests and special quests, then attempts to complete them."""
         
-        def fetch_and_complete_quests(req_url: str, quest_type: str) -> None:
+        def fetch_and_complete_quests(req_url: str, quest_type: str, complete_url: str = None) -> None:
             headers = {
                 **self.HEADERS,
                 "authorization": f"Bearer {self.token}"
@@ -534,9 +534,10 @@ class otterloot:
                     # Skip if quest is already completed
                     if quest_status != 1:
                         continue
-
+                    
+                    self.log(str({"questID": quest_id}))
                     payload = {"questID": quest_id}
-                    req_url_quest = f"{self.BASE_URL}v1/quest/do"
+                    req_url_quest = complete_url or f"{self.BASE_URL}v1/quest/do"
 
                     try:
                         self.log(f"🗺️ Attempting {quest_type} quest ID: {quest_id} - {quest.get('description', 'No description')}...", Fore.CYAN)
@@ -568,12 +569,6 @@ class otterloot:
                         else:
                             self.log(f"🎁 No rewards for {quest_type} quest ID {quest_done_id}.", Fore.YELLOW)
 
-                        # Check if there's a next quest
-                        next_quest = data.get("nextQuest")
-                        if next_quest is None:
-                            self.log(f"🏁 No more {quest_type} quests available.", Fore.CYAN)
-                            break
-
                     except requests.exceptions.RequestException as e:
                         self.log(f"❌ Failed to perform {quest_type} quest ID {quest_id}: {e}", Fore.RED)
                         self.log(f"📄 Response content: {response.text}", Fore.RED)
@@ -598,7 +593,11 @@ class otterloot:
         fetch_and_complete_quests(f"{self.BASE_URL}v1/quest", "regular")
 
         # Process special quests
-        fetch_and_complete_quests(f"{self.BASE_URL}v1/special-quest", "special")
+        fetch_and_complete_quests(
+            req_url=f"{self.BASE_URL}v1/special-quest",
+            quest_type="special",
+            complete_url=f"{self.BASE_URL}v1/special-quest/do"            
+        )
 
     def otter(self) -> None:
         """Fetches Otter details, repairs broken parts, and upgrades parts until max or limit reached."""

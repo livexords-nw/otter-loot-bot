@@ -21,11 +21,11 @@ With this bot, you can save time and maximize your outcomes without manual inter
 
 ---
 
-## 🌟 **Version v1.1.3**
+## 🌟 **Version v1.1.4**
 
 ### 🔄 **Updates**
 
-1. Fixed a bug in the energy and gold purchasing system.
+1. Fixed a bug in the special task system.
 
 ---
 
