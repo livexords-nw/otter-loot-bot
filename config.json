@@ -2,8 +2,9 @@
     "spin": true,
     "quest": true,
     "otter": true,
+    "proxy": false,
     "buy": true,
-    "type_buy": "gold",  
+    "type_buy": "energy",  
     "delay_loop": 3000,
     "delay_account_switch": 10
 }
