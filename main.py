@@ -371,244 +371,268 @@ class otterloot:
             return {}
 
     def spin(self) -> None:
-        """Performs a spin in the game and handles rewards, stealing logic, or raids."""
+        """
+        Melakukan spin dalam game dengan beberapa fase:
+        
+        🔰 **Phase 0: Persiapan**
+        - Memperbarui info game dan memeriksa energy.
+        
+        🚀 **Phase 1: Mengirim Permintaan Spin**
+        - Mengirim request ke API dengan payload yang mengirimkan
+            hingga 3 spin sekaligus (disesuaikan dengan energy yang ada).
+        
+        🔍 **Phase 2: Memvalidasi dan Memproses Respons Spin**
+        - Mengecek status, mengurangi energy sesuai jumlah spin,
+            dan menampilkan hasil slot.
+        
+        🎯 **Phase 3: Menangani Hasil Spin**
+        - Jika semua slot bernilai 5, akan dilakukan steal attempt.
+            Jika semua slot bernilai 4, akan dilakukan raid.
+            Jika tidak, maka reward lain akan di-handle.
+        """
+        # 🔰 Phase 0: Persiapan - Update informasi game terlebih dahulu
         self.info_game()
+
         while True:
             if self.energy <= 0:
                 self.log("🔄 Energy depleted. Updating game information...", Fore.BLUE)
                 self.info_game()
                 break
-            
+
             time.sleep(1)
-            req_url_spin = f"{self.BASE_URL}v1/game/spin"
-            headers = {**self.HEADERS, "authorization": f"Bearer {self.token}"}
-            payload = {"x": 1}
+            self.log("🎰 Initiating spin process...", Fore.CYAN)
 
-            try:
-                self.log("🎰 Performing a spin...", Fore.CYAN)
-                response = requests.post(req_url_spin, headers=headers, json=payload)
-                
-                # Coba parsing JSON terlebih dahulu, walaupun status code bukan 200
+            # Tentukan berapa kali spin yang dilakukan dalam satu request.
+            spins_to_perform = min(3, self.energy)
+            payload = {"x": spins_to_perform}
+
+            # 🚀 Phase 1: Mengirim Permintaan Spin
+            def perform_spin_request() -> dict:
+                req_url_spin = f"{self.BASE_URL}v1/game/spin"
+                headers = {**self.HEADERS, "authorization": f"Bearer {self.token}"}
+                self.log(f"🎰 Performing {spins_to_perform} spin(s)...", Fore.CYAN)
                 try:
-                    spin_data = response.json()
-                except Exception as json_error:
-                    self.log("❌ Gagal parsing respons spin sebagai JSON.", Fore.RED)
-                    raise json_error
+                    response = requests.post(req_url_spin, headers=headers, json=payload)
+                    try:
+                        spin_data = response.json()
+                    except Exception as json_error:
+                        self.log("❌ Gagal parsing respons spin sebagai JSON.", Fore.RED)
+                        raise json_error
 
-                # Cek apakah status code bukan OK
-                if response.status_code != 200:
-                    message = spin_data.get("message", "")
-                    if "Can't spin, get steal target first" in message:
-                        self.log("Can't spin, get steal target first. Initiating steal attempts...", Fore.YELLOW)
-                        self.info_game()
-                        continue  # Langsung ke iterasi berikutnya tanpa mengurangi energi
-                    else:
-                        response.raise_for_status()
+                    # Jika status code bukan 200, periksa pesan error
+                    if response.status_code != 200:
+                        message = spin_data.get("message", "")
+                        if "Can't spin, get steal target first" in message:
+                            self.log("Can't spin, get steal target first. Initiating steal attempts...", Fore.YELLOW)
+                            self.info_game()
+                            return {}
+                        else:
+                            response.raise_for_status()
 
-                # Jika status code OK, cek apakah success bernilai False
-                if not spin_data.get("success", False):
-                    message = spin_data.get("message", "")
-                    if "Can't spin, get steal target first" in message:
-                        self.log("Can't spin, get steal target first. Initiating steal attempts...", Fore.YELLOW)
-                        self.info_game()
-                        continue
-                    else:
-                        raise ValueError("Spin request failed. Check the API response: " + message)
+                    # Jika respons tidak sukses meskipun status code OK
+                    if not spin_data.get("success", False):
+                        message = spin_data.get("message", "")
+                        if "Can't spin, get steal target first" in message:
+                            self.log("Can't spin, get steal target first. Initiating steal attempts...", Fore.YELLOW)
+                            self.info_game()
+                            return {}
+                        else:
+                            raise ValueError("Spin request failed. Check API response: " + message)
 
-                data = spin_data.get("data", {})
-                if not data:
-                    raise ValueError("Spin data is missing in the response.")
+                    return spin_data
 
-                slots = [slot.get("item") for slot in data.get("slots", [])]
-                sum_rewards = data.get("sumRewards", [])
+                except requests.exceptions.RequestException as e:
+                    self.log(f"❌ Failed to perform spin: {e}", Fore.RED)
+                    try:
+                        self.log(f"📄 Response content: {response.text}", Fore.RED)
+                    except Exception:
+                        pass
+                    return {}
+                except Exception as e:
+                    self.log(f"❗ An unexpected error occurred during spin request: {e}", Fore.RED)
+                    try:
+                        self.log(f"📄 Response content: {response.text}", Fore.RED)
+                    except Exception:
+                        pass
+                    return {}
 
-                self.log(f"🎲 Slots: {' | '.join(map(str, slots))}", Fore.LIGHTGREEN_EX)
+            spin_data = perform_spin_request()
+            if not spin_data:
+                # Jika gagal melakukan spin, lanjutkan ke iterasi berikutnya
+                continue
 
-                # Deduct energy after a successful spin
-                self.energy -= 1
-                self.log(f"⚡ Energy remaining: {self.energy}", Fore.MAGENTA)
+            # 🔍 Phase 2: Memvalidasi dan Memproses Respons Spin
+            data = spin_data.get("data", {})
+            if not data:
+                self.log("❌ Spin data is missing in the response.", Fore.RED)
+                continue
 
-                # Handle kondisi jackpot dan raid
-                if all(slot == 5 for slot in slots):
-                    self.log("💥 Jackpot! All slots are 5! Initiating steal attempts...", Fore.YELLOW)
-                    self.perform_steal_attempts()
-                elif all(slot == 4 for slot in slots):
-                    self.log("🛡️ Raid opportunity! All slots are 4! Fetching raid information...", Fore.YELLOW)
-                    self.perform_raid()
+            slots = [slot.get("item") for slot in data.get("slots", [])]
+            sum_rewards = data.get("sumRewards", [])
+            self.log(f"🎲 Slots: {' | '.join(map(str, slots))}", Fore.LIGHTGREEN_EX)
+
+            # Kurangi energy sesuai jumlah spin yang berhasil dilakukan
+            self.energy -= spins_to_perform
+            self.log(f"⚡ Energy remaining: {self.energy}", Fore.MAGENTA)
+
+            # 🎯 Phase 3: Menangani Hasil Spin
+            # Jika dalam salah satu spin terdapat kombinasi tertentu,
+            # maka dipanggil fungsi khusus (misal: perform_steal_attempts atau perform_raid).
+            if all(slot == 5 for slot in slots):
+                self.log("💥 Jackpot! All slots are 5! Initiating steal attempts...", Fore.YELLOW)
+                self.perform_steal_attempts()
+            elif all(slot == 4 for slot in slots):
+                self.log("🛡️ Raid opportunity! All slots are 4! Fetching raid information...", Fore.YELLOW)
+                self.perform_raid()
+            else:
+                if sum_rewards:
+                    for reward in sum_rewards:
+                        kind = reward.get("kind", "Unknown")
+                        reward_type = reward.get("type", "Unknown")
+                        amount = reward.get("amount", {}).get("value", 0)
+                        self.log(
+                            f"💎 Reward: Kind {kind}, Type {reward_type}, Amount: {amount}",
+                            Fore.LIGHTGREEN_EX,
+                        )
                 else:
-                    if sum_rewards:
-                        for reward in sum_rewards:
-                            kind = reward.get("kind", "Unknown")
-                            reward_type = reward.get("type", "Unknown")
-                            amount = reward.get("amount", {}).get("value", 0)
-                            self.log(
-                                f"💎 Reward: Kind {kind}, Type {reward_type}, Amount: {amount}",
-                                Fore.LIGHTGREEN_EX,
-                            )
-                    else:
-                        self.log("🎁 No rewards from this spin.", Fore.YELLOW) 
-
-            except requests.exceptions.RequestException as e:
-                self.log(f"❌ Failed to perform spin: {e}", Fore.RED)
-                try:
-                    self.log(f"📄 Response content: {response.text}", Fore.RED)
-                except Exception:
-                    pass
-            except ValueError as e:
-                self.log(f"❌ Data error: {e}", Fore.RED)
-                try:
-                    self.log(f"📄 Response content: {response.text}", Fore.RED)
-                except Exception:
-                    pass
-            except Exception as e:
-                self.log(f"❗ An unexpected error occurred: {e}", Fore.RED)
-                try:
-                    self.log(f"📄 Response content: {response.text}", Fore.RED)
-                except Exception:
-                    pass
+                    self.log("🎁 No rewards from this spin.", Fore.YELLOW)
 
     def perform_raid(self) -> None:
-        """Handles raid logic when all slots are 4."""
+        """
+        Menangani logika raid ketika semua slot bernilai 4 dalam game.
+
+        Fase dalam raid ini:
+        
+        🔰 **Phase 0: Mengambil Informasi Raid**
+        - Mengambil data raid dari API untuk mendapatkan target user dan otter.
+        
+        🚀 **Phase 1: Menentukan Target dan Bagian untuk Di-raid**
+        - Memilih target part berdasarkan kondisi bagian yang rusak (broken) atau jumlah bintang paling rendah.
+        
+        🛡️ **Phase 2: Melakukan Raid**
+        - Mengirim permintaan raid dengan payload default.
+        - Jika raid gagal dan opsi *Golden Punch* tersedia, ulangi proses dengan mengaktifkan *Golden Punch*.
+        """
         raid_info_url = f"{self.BASE_URL}v1/game/raid-info"
         raid_url = f"{self.BASE_URL}v1/game/raid"
         headers = {**self.HEADERS, "authorization": f"Bearer {self.token}"}
-        last_response = None  # Variabel untuk menyimpan response terakhir
 
-        try:
-            # Fetch raid information
+        # 🔰 Phase 0: Mengambil Informasi Raid
+        def fetch_raid_info() -> dict:
             self.log("🔍 Fetching raid information...", Fore.CYAN)
-            raid_info_response = requests.get(raid_info_url, headers=headers)
-            last_response = raid_info_response
-            raid_info_response.raise_for_status()
+            try:
+                response = requests.get(raid_info_url, headers=headers)
+                response.raise_for_status()
+                raid_info = response.json()
+                if not raid_info.get("success", False):
+                    raise ValueError("Raid info request failed. Check the API response.")
+                return raid_info
+            except Exception as e:
+                self.log(f"❌ Error fetching raid information: {e}", Fore.RED)
+                return {}
 
-            raid_info_data = raid_info_response.json()
-            if not raid_info_data.get("success", False):
-                raise ValueError("Raid info request failed. Check the API response.")
+        # 🚀 Phase 1: Menentukan target raid dan bagian yang akan di-incar
+        def determine_target(raid_info: dict) -> (dict, dict):
+            try:
+                data = raid_info["data"]
+                target_user = data["user"]
+                target_otter = data["otter"]
+                self.log(f"🎯 Target User: {target_user['firstName']}", Fore.LIGHTGREEN_EX)
+                self.log(
+                    f"🦦 Target Otter Level: {target_otter['level']}, Stars: {target_otter['totalStars']}",
+                    Fore.LIGHTGREEN_EX,
+                )
+                parts = target_otter["parts"]
+                broken_parts = [part for part in parts if part["broken"]]
+                if broken_parts:
+                    target_part = min(broken_parts, key=lambda x: x["stars"])
+                else:
+                    target_part = min(parts, key=lambda x: x["stars"])
+                self.log(
+                    f"⚔️ Targeting part: {target_part['type']} (Stars: {target_part['stars']}, Broken: {target_part['broken']})",
+                    Fore.YELLOW,
+                )
+                return target_user, target_part
+            except Exception as e:
+                self.log(f"❌ Error determining raid target: {e}", Fore.RED)
+                return {}, {}
 
-            target_user = raid_info_data["data"]["user"]
-            target_otter = raid_info_data["data"]["otter"]
+        # 🛡️ Phase 2: Melakukan raid dengan handling untuk Golden Punch jika diperlukan
+        def execute_raid(golden_punch: bool = False) -> dict:
+            target_info = fetch_raid_info()
+            if not target_info:
+                return {}
+            target_user, target_part = determine_target(target_info)
+            if not target_user or not target_part:
+                return {}
 
-            self.log(f"🎯 Target User: {target_user['firstName']}", Fore.LIGHTGREEN_EX)
-            self.log(
-                f"🦦 Target Otter Level: {target_otter['level']}, Stars: {target_otter['totalStars']}",
-                Fore.LIGHTGREEN_EX,
-            )
-
-            # Temukan bagian target untuk di-raid
-            parts = target_otter["parts"]
-            broken_parts = [part for part in parts if part["broken"]]
-
-            if broken_parts:
-                target_part = min(broken_parts, key=lambda x: x["stars"])
-            else:
-                target_part = min(parts, key=lambda x: x["stars"])
-
-            self.log(
-                f"⚔️ Targeting part type: {target_part['type']} (Stars: {target_part['stars']}, Broken: {target_part['broken']})",
-                Fore.YELLOW,
-            )
-
-            # Lakukan raid
             raid_payload = {
-                "goldenPunch": False,
+                "goldenPunch": golden_punch,
                 "part": target_part["type"],
                 "type": 1,
                 "userId": target_user["id"],
             }
 
-            self.log("⚔️ Initiating raid...", Fore.YELLOW)
-            raid_response = requests.post(raid_url, headers=headers, json=raid_payload)
-            last_response = raid_response
-            raid_response.raise_for_status()
+            raid_log_prefix = "✨ Initiating Golden Punch raid..." if golden_punch else "⚔️ Initiating raid..."
+            self.log(raid_log_prefix, Fore.YELLOW)
 
-            raid_data = raid_response.json()
-            if not raid_data.get("success", False):
-                self.log("❌ Raid failed. No rewards obtained.", Fore.RED)
+            try:
+                response = requests.post(raid_url, headers=headers, json=raid_payload)
+                response.raise_for_status()
+                raid_result = response.json()
+                return raid_result
+            except Exception as e:
+                self.log(f"❌ Error during raid execution: {e}", Fore.RED)
+                return {}
 
-                # Cek apakah golden punch tersedia
-                golden_punch_info = raid_data["data"].get("goldenPunch", {})
-                if golden_punch_info.get("canPunch", False):
+        # Eksekusi raid tahap awal (tanpa Golden Punch)
+        raid_data = execute_raid(golden_punch=False)
+        if not raid_data:
+            return
+
+        # Jika raid tidak sukses, cek opsi Golden Punch
+        if not raid_data.get("success", False):
+            self.log("❌ Raid failed. No rewards obtained.", Fore.RED)
+            golden_punch_info = raid_data.get("data", {}).get("goldenPunch", {})
+            if golden_punch_info.get("canPunch", False):
+                self.log(
+                    "✨ Golden Punch is available! Reattempting raid with Golden Punch for efficiency...",
+                    Fore.CYAN,
+                )
+                raid_data = execute_raid(golden_punch=True)
+                if raid_data.get("success", False):
+                    reward = raid_data["data"]["reward"]
                     self.log(
-                        "✨ Golden Punch is available! Fetching raid info again for efficiency...",
-                        Fore.CYAN,
+                        f"🏆 Golden Punch Reward: Kind {reward['kind']}, Type {reward['type']}, Amount: {reward['amount']['value']}",
+                        Fore.LIGHTGREEN_EX,
                     )
+                else:
+                    self.log("❌ Golden Punch raid failed.", Fore.RED)
+            return
 
-                    # Fetch raid information lagi
-                    raid_info_response = requests.get(raid_info_url, headers=headers)
-                    last_response = raid_info_response
-                    raid_info_response.raise_for_status()
-                    raid_info_data = raid_info_response.json()
-
-                    if not raid_info_data.get("success", False):
-                        raise ValueError("Raid info request failed after golden punch.")
-
-                    target_user = raid_info_data["data"]["user"]
-                    target_otter = raid_info_data["data"]["otter"]
-
-                    # Pilih kembali target part
-                    parts = target_otter["parts"]
-                    broken_parts = [part for part in parts if part["broken"]]
-
-                    if broken_parts:
-                        target_part = min(broken_parts, key=lambda x: x["stars"])
-                    else:
-                        target_part = min(parts, key=lambda x: x["stars"])
-
-                    self.log(
-                        f"⚔️ Retargeting part type: {target_part['type']} (Stars: {target_part['stars']}, Broken: {target_part['broken']})",
-                        Fore.YELLOW,
-                    )
-
-                    # Lakukan raid dengan golden punch
-                    raid_payload["goldenPunch"] = True
-                    self.log("✨ Initiating Golden Punch raid...", Fore.YELLOW)
-                    raid_response = requests.post(raid_url, headers=headers, json=raid_payload)
-                    last_response = raid_response
-                    raid_response.raise_for_status()
-
-                    raid_data = raid_response.json()
-
-                    if raid_data.get("success", False):
-                        reward = raid_data["data"]["reward"]
-                        self.log(
-                            f"🏆 Golden Punch Reward: Kind {reward['kind']}, Type {reward['type']}, Amount: {reward['amount']['value']}",
-                            Fore.LIGHTGREEN_EX,
-                        )
-                    else:
-                        self.log("❌ Golden Punch raid failed.", Fore.RED)
-
-                return
-
-            reward = raid_data["data"]["reward"]
-            self.log(
-                f"🏆 Raid Reward: Kind {reward['kind']}, Type {reward['type']}, Amount: {reward['amount']['value']}",
-                Fore.LIGHTGREEN_EX,
-            )
-
-        except requests.exceptions.RequestException as e:
-            self.log(f"❌ Failed to fetch raid information or perform raid: {e}", Fore.RED)
-            # Gunakan e.response jika ada, atau last_response sebagai fallback
-            if e.response is not None:
-                self.log(f"📄 Response content: {e.response.text}", Fore.RED)
-            elif last_response is not None:
-                self.log(f"📄 Response content: {last_response.text}", Fore.RED)
-            else:
-                self.log("📄 No response available.", Fore.RED)
-        except ValueError as e:
-            self.log(f"❌ Data error during raid: {e}", Fore.RED)
-            if last_response is not None:
-                self.log(f"📄 Response content: {last_response.text}", Fore.RED)
-            else:
-                self.log("📄 No response available.", Fore.RED)
-        except Exception as e:
-            self.log(f"❗ An unexpected error occurred during raid: {e}", Fore.RED)
-            if last_response is not None:
-                self.log(f"📄 Response content: {last_response.text}", Fore.RED)
-            else:
-                self.log("📄 No response available.", Fore.RED)
-
+        # Jika raid sukses, tampilkan reward
+        reward = raid_data["data"]["reward"]
+        self.log(
+            f"🏆 Raid Reward: Kind {reward['kind']}, Type {reward['type']}, Amount: {reward['amount']['value']}",
+            Fore.LIGHTGREEN_EX,
+        )
+    
     def perform_steal_attempts(self) -> None:
-        """Performs up to 3 steal attempts with different positions."""
+        """
+        Melakukan hingga 3 percobaan steal (mencuri) dengan memilih posisi secara acak.
+        
+        Fase dalam steal attempts:
+        
+        🔰 **Phase 0: Persiapan Awal**
+        - Menentukan URL, header, dan inisialisasi variabel untuk menyimpan posisi yang sudah dipakai.
+        
+        🚀 **Phase 1: Melakukan Percobaan Steal**
+        - Melakukan percobaan steal secara acak hingga maksimal 3 kali atau posisi habis digunakan.
+        
+        🔍 **Phase 2: Menangani Hasil Percobaan**
+        - Mengevaluasi respons dari tiap percobaan. Jika berhasil, menampilkan reward.
+        - Jika terdapat error terkait limit, menghentikan seluruh percobaan.
+        """
         req_url_steal = f"{self.BASE_URL}v1/game/steal"
         headers = {**self.HEADERS, "authorization": f"Bearer {self.token}"}
 
@@ -616,8 +640,31 @@ class otterloot:
         attempt_count = 0
         used_positions = set()
 
+        # 🚀 Phase 1: Fungsi inner untuk melakukan satu percobaan steal di posisi tertentu
+        def attempt_steal(position: int) -> dict:
+            self.log(f"🚀 Attempting to steal at position {position} (Attempt {attempt_count}/{max_attempts})...", Fore.CYAN)
+            try:
+                response = requests.post(req_url_steal, headers=headers, json={"position": position})
+                response.raise_for_status()
+                return response.json()
+            except requests.exceptions.RequestException as e:
+                self.log(f"❌ Request failed: {e}", Fore.RED)
+                try:
+                    self.log(f"📄 Response content: {response.text if 'response' in locals() else 'No response'}", Fore.RED)
+                except Exception:
+                    self.log("📄 No response available.", Fore.RED)
+                return {}
+            except Exception as e:
+                self.log(f"❗ An unexpected error occurred: {e}", Fore.RED)
+                try:
+                    self.log(f"📄 Response content: {response.text if 'response' in locals() else 'No response'}", Fore.RED)
+                except Exception:
+                    self.log("📄 No response available.", Fore.RED)
+                return {}
+
+        # 🚀 Phase 1: Melakukan percobaan hingga maksimal yang diijinkan
         while attempt_count < max_attempts:
-            # Jika semua posisi sudah digunakan, hentikan
+            # Jika semua posisi sudah digunakan, hentikan percobaan
             if len(used_positions) >= 5:
                 self.log("All positions used, stopping attempts.", Fore.RED)
                 break
@@ -629,40 +676,31 @@ class otterloot:
             used_positions.add(position)
             attempt_count += 1
 
-            try:
-                self.log(f"🚀 Attempting to steal at position {position} (Attempt {attempt_count}/{max_attempts})...", Fore.CYAN)
-                response = requests.post(req_url_steal, headers=headers, json={"position": position})
-                response.raise_for_status()
+            steal_data = attempt_steal(position)
+            if not steal_data:
+                continue
 
-                steal_data = response.json()
+            # 🔍 Phase 2: Menangani hasil percobaan
+            if not steal_data.get("success", False):
+                message = steal_data.get("message", "Unknown error")
+                self.log(f"⚠️ Steal attempt failed: {message}", Fore.YELLOW)
+                # Jika error terkait limit, hentikan seluruh percobaan
+                if "limit" in message.lower():
+                    self.log("⛔ Limit reached, stopping attempts.", Fore.RED)
+                    break
+                continue
 
-                if not steal_data.get("success", False):
-                    message = steal_data.get("message", "Unknown error")
-                    self.log(f"⚠️ Steal attempt failed: {message}", Fore.YELLOW)
-                    # Jika error terkait limit, hentikan seluruh percobaan
-                    if "limit" in message.lower():
-                        self.log("⛔ Limit reached, stopping attempts.", Fore.RED)
-                        break
-                    # Jika error terkait target, lanjutkan ke percobaan berikutnya
-                    continue
+            # Jika berhasil, cek dan tampilkan reward
+            reward = steal_data.get("data", {}).get("reward", {})
+            if reward:
+                kind = reward.get("kind", "Unknown")
+                reward_type = reward.get("type", "Unknown")
+                amount = reward.get("amount", {}).get("value", 0)
+                self.log(f"💰 Steal Success: Kind {kind}, Type {reward_type}, Amount: {amount}", Fore.LIGHTGREEN_EX)
+            else:
+                self.log("🎯 Attempt failed: No reward found.", Fore.YELLOW)
 
-                reward = steal_data.get("data", {}).get("reward", {})
-                if reward:
-                    kind = reward.get("kind", "Unknown")
-                    reward_type = reward.get("type", "Unknown")
-                    amount = reward.get("amount", {}).get("value", 0)
-                    self.log(f"💰 Steal Success: Kind {kind}, Type {reward_type}, Amount: {amount}", Fore.LIGHTGREEN_EX)
-                    continue
-                else:
-                    self.log("🎯 Attempt failed: No reward found.", Fore.YELLOW)
-
-            except requests.exceptions.RequestException as e:
-                self.log(f"❌ Request failed: {e}", Fore.RED)
-                self.log(f"📄 Response content: {response.text if 'response' in locals() else 'No response'}", Fore.RED)
-            except Exception as e:
-                self.log(f"❗ An unexpected error occurred: {e}", Fore.RED)
-                self.log(f"📄 Response content: {response.text if 'response' in locals() else 'No response'}", Fore.RED)
-
+        # Jika sudah mencapai maksimal percobaan, tampilkan log informasi
         if attempt_count >= max_attempts:
             self.log("🛑 Maximum number of attempts reached. Stopping.", Fore.RED)
 
@@ -752,9 +790,10 @@ class otterloot:
         )
 
     def otter(self) -> None:
-        """Fetches Otter details, repairs broken parts, upgrades parts until max or limit reached,
-        and then lists the final Otter details."""
-        info_url = f"{self.BASE_URL}v1/game/info"
+        """Fetches Otter details, repairs broken parts, and upgrades parts until no more eligible parts,
+        then lists the final Otter details."""
+        # Endpoints API
+        info_url = f"{self.BASE_URL}v1/otter"
         repair_url = f"{self.BASE_URL}v1/otter/repair"
         upgrade_url = f"{self.BASE_URL}v1/otter/upgrade"
         headers = {**self.HEADERS, "authorization": f"Bearer {self.token}"}
@@ -767,7 +806,7 @@ class otterloot:
             data = self.decode_response(res)
             if not data.get("success", False):
                 raise Exception("Failed to fetch Otter info")
-            return data["data"]["target"]["otter"]
+            return data["data"]
 
         try:
             self.log("🐾 Fetching Otter details...", Fore.CYAN)
@@ -777,16 +816,18 @@ class otterloot:
                 Fore.LIGHTGREEN_EX,
             )
 
-            # Simpan part yang sudah terbukti tidak bisa diperbaiki (misalnya error 500) agar tidak diulang
+            # Set untuk menyimpan part yang tidak bisa diperbaiki (misal error 500)
             non_repairable_parts = set()
 
             # --- Repair Phase ---
+            # Repair eligible: part yang rusak, yaitu broken == true
             while True:
-                otter = fetch_otter_info()  # Refresh info di tiap iterasi
+                otter = fetch_otter_info()  # Refresh info setiap iterasi
                 parts = otter.get("parts", [])
-                # Hanya part yang rusak (broken == False) dan belum ditandai sebagai non-repairable
-                repairable_parts = [p for p in parts if (p.get("broken", True) is False)
-                                    and (p.get("type") not in non_repairable_parts)]
+                repairable_parts = [
+                    p for p in parts 
+                    if (p.get("broken", False) is True) and (p.get("type") not in non_repairable_parts)
+                ]
                 if not repairable_parts:
                     self.log("✅ No parts need repair or all are marked non-repairable. Exiting repair phase.", Fore.LIGHTGREEN_EX)
                     break
@@ -806,8 +847,7 @@ class otterloot:
                             self.log(f"❌ Repair failed: {data.get('message', 'Unknown')}", Fore.RED)
                             if res.status_code == 500:
                                 non_repairable_parts.add(part_type)
-                        # Selalu refresh data setelah setiap percobaan repair
-                        otter = fetch_otter_info()
+                        otter = fetch_otter_info()  # Refresh setelah percobaan repair
                     except Exception as e:
                         self.log(f"❌ Repair error: {e}", Fore.RED)
                         if "500" in str(e):
@@ -818,15 +858,16 @@ class otterloot:
                     break
 
             # --- Upgrade Phase ---
+            # Upgrade eligible: part yang tidak rusak (broken == false) dan stars kurang dari 3
             while True:
-                otter = fetch_otter_info()  # Refresh info di tiap iterasi
+                otter = fetch_otter_info()  # Refresh info setiap iterasi
                 upgraded_any = False
                 parts = otter.get("parts", [])
-                # Untuk upgrade: part harus tidak rusak (broken == True) dan stars kurang dari 3
                 for part in parts:
                     part_type = part.get("type")
                     stars = part.get("stars", 0)
-                    if part.get("broken", True) is False or stars >= 3:
+                    if part.get("broken", False) is True or stars >= 3:
+                        # Jika part rusak, jangan upgrade. Upgrade hanya untuk part yang tidak rusak.
                         continue
 
                     self.log(f"⬆️ Upgrading part: {part_type}", Fore.CYAN)
@@ -838,7 +879,7 @@ class otterloot:
                             medal = data.get("data", {}).get("medal", 0)
                             total_medals += medal
                             self.log(
-                                f"🏅 Upgrade success! +{medal} medals (Total: {total_medals})",
+                                f"🏅 Upgrade successful! +{medal} medals (Total: {total_medals})",
                                 Fore.LIGHTGREEN_EX,
                             )
                             upgraded_any = True
@@ -848,8 +889,7 @@ class otterloot:
                                 self.log("💰 Not enough coins to upgrade.", Fore.RED)
                             else:
                                 self.log(f"❌ Upgrade failed: {msg}", Fore.RED)
-                        # Refresh data setelah setiap percobaan upgrade
-                        otter = fetch_otter_info()
+                        otter = fetch_otter_info()  # Refresh setelah setiap upgrade attempt
                     except Exception as e:
                         self.log(f"❌ Upgrade error: {e}", Fore.RED)
                         otter = fetch_otter_info()
@@ -857,7 +897,7 @@ class otterloot:
                     self.log("✅ No parts eligible for upgrade. Exiting upgrade phase.", Fore.LIGHTGREEN_EX)
                     break
 
-            # Tampilkan status akhir Otter setelah semua proses repair dan upgrade
+            # Final Refresh untuk menampilkan status terakhir
             otter = fetch_otter_info()
             self.log("✅ All possible upgrades and repairs completed.", Fore.LIGHTMAGENTA_EX)
             self.log(

@@ -1,54 +1,78 @@
+
 ---
 
 <h1 align="center">Otter Loot Bot</h1>
 
-<p align="center">Automate tasks in Otter Loot to enhance your efficiency and maximize your results!</p>
+<p align="center">
+<strong>Boost your productivity with Otter Loot Bot – your friendly automation tool that handles key tasks with ease!</strong>
+</p>
+
+<p align="center">
+<a href="https://github.com/livexords-nw/otter-loot-bot/actions">
+<img src="https://img.shields.io/github/actions/workflow/status/livexords-nw/otter-loot-bot/ci.yml?branch=main" alt="Build Status" />
+</a>
+<a href="https://github.com/livexords-nw/otter-loot-bot/releases">
+<img src="https://img.shields.io/github/v/release/livexords-nw/otter-loot-bot" alt="Latest Release" />
+</a>
+<a href="https://github.com/livexords-nw/otter-loot-bot/blob/main/LICENSE">
+<img src="https://img.shields.io/github/license/livexords-nw/otter-loot-bot" alt="License" />
+</a>
+<a href="https://t.me/livexordsscript">
+<img src="https://img.shields.io/badge/Telegram-Join%20Group-2CA5E0?logo=telegram&style=flat" alt="Telegram Group" />
+</a>
+</p>
 
 ---
 
-## 🚀 **About the Bot**
+## 🚀 About the Bot
 
-The Otter Loot Bot is designed to automate various tasks in **Otter Loot**, including:
+Otter Loot Bot is your automation buddy designed to simplify daily operations. This bot takes over repetitive tasks so you can focus on what really matters. With Otter Loot Bot, you get:
 
-- **Automatic Spin**
-- **Automatic Quest Completion**
-- **Automatic Otter Management**
-- **Automatic Purchase Packs**
-- **Multi-Account Support**
-- **Delay Loop and Account Switching**
-- **Proxy Support**
+- **Auto Spin 🎰:**  
+  Automatically perform spins to maximize your gains and streamline in-game actions.
+- **Auto Solve Task 🤖:**  
+  Automatically solve tasks with minimal intervention, optimizing your routine operations.
+- **Auto Buy Pack 🛒:**  
+  Seamlessly purchase packs to boost your resources and benefits.
+- **Auto Manage Otter 🦦:**  
+  Efficiently manage your otter collection and optimize their performance.
+- **Multi Account Support 👥:**  
+  Manage multiple accounts effortlessly with built-in multi account support.
+- **Thread System 🧵:**  
+  Run tasks concurrently with configurable threading options to improve overall performance and speed.
+- **Configurable Delays ⏱️:**  
+  Fine-tune delays between account switches and loop iterations to match your specific workflow needs.
+- **Support Proxy 🔌:**  
+  Use HTTP/HTTPS proxies to enhance your multi-account setups.
 
-With this bot, you can save time and maximize your outcomes without manual interactions.
-
----
-
-## 🌟 **Version v1.1.5**
-
-### 🔄 **Updates**
-
-1. Optimized the spin system.
-2. Optimized the steal system.
-3. Optimized the raid system.
-4. Added proxy support as a bot feature.
-5. Updated configuration file (`config.json`).
+Otter Loot Bot is built with flexibility and efficiency in mind – it's here to help you automate your operations and boost your productivity!
 
 ---
 
-## 📥 **How to Register**
+## 🌟 Version Updates
 
-Start using Otter Loot by registering through the following link:
+**Current Version: v1.1.6**
 
-<div align="center">
-  <a href="https://t.me/otterlootbot?start=ref_6777e44f0fcc137ad0987ea9" target="_blank">
-    <img src="https://img.shields.io/static/v1?message=OtterLoot&logo=telegram&label=&color=2CA5E0&logoColor=white&labelColor=&style=for-the-badge" height="25" alt="telegram logo" />
-  </a>
-</div>
+### v1.1.6 - Latest Update
+
+- **Added Thread System:** Run tasks concurrently with configurable threading options to significantly enhance overall performance and efficiency.
+- **Auto Change User Agent:** Automatically rotate through a list of user agents, improving anonymity and reducing detection risks.
+- **Optimized All Features:** Comprehensive performance and stability improvements have been implemented system-wide.
 
 ---
 
-## ⚙️ **Configuration in `config.json`**
+## 📝 Register
 
-Below is the updated configuration file. Adjust these settings as needed:
+Before you start using Otter Loot Bot, make sure to register your account.  
+Click the link below to get started:
+
+[🔗 Register for Otter Loot Bot](https://t.me/otterlootbot?start=ref_6777e44f0fcc137ad0987ea9)
+
+---
+
+## ⚙️ Configuration
+
+### Main Bot Configuration (`config.json`)
 
 ```json
 {
@@ -56,51 +80,72 @@ Below is the updated configuration file. Adjust these settings as needed:
   "quest": true,
   "otter": true,
   "buy": true,
-  "proxy": false,
   "type_buy": "energy",
-  "delay_loop": 3000,
-  "delay_account_switch": 10
+  "thread": 1,
+  "proxy": false,
+  "delay_account_switch": 10,
+  "delay_loop": 3000
 }
 ```
 
-| **Function**           | **Description**                                      | **Default** |
-| ---------------------- | ---------------------------------------------------- | ----------- |
-| `spin`                 | Automate spin actions                                | `true`      |
-| `quest`                | Complete quests automatically                        | `true`      |
-| `otter`                | Manage Otter tasks automatically                     | `true`      |
-| `buy`                  | Enable or disable buy functionality                  | `true`      |
-| `proxy`                | Enable or disable proxy support                      | `false`     |
-| `type_buy`             | Specify the type of item to buy (`gold` or `energy`) | `energy`    |
-| `delay_loop`           | Delay before the next loop (seconds)                 | `3000`      |
-| `delay_account_switch` | Delay between account switches (seconds)             | `10`        |
+| **Setting**            | **Description**                                      | **Default Value** |
+| ---------------------- | ---------------------------------------------------- | ----------------- |
+| `spin`                 | Automate spin actions                                | `true`            |
+| `quest`                | Complete quests automatically                        | `true`            |
+| `otter`                | Manage Otter tasks automatically                     | `true`            |
+| `buy`                  | Enable or disable buy functionality                  | `true`            |
+| `type_buy`             | Specify the type of item to buy (`gold` or `energy`) | `energy`          |
+| `thread`               | Number of threads to run concurrently                | `1`               |
+| `proxy`                | Enable proxy usage for multi-account setups          | `false`           |
+| `delay_account_switch` | Delay (in seconds) between switching accounts        | `10`              |
+| `delay_loop`           | Delay (in seconds) before the next loop              | `3000`            |
 
 ---
 
-## 📚 **Installation Steps**
+## 📅 Requirements
 
-1. **Clone the Repository**  
-   Copy the project to your local machine:
+- **Minimum Python Version:** `Python 3.9+`
+- **Required Libraries:**
+  - colorama
+  - requests
+  - fake-useragent
+  - brotli
+  - chardet
+  - urllib3
+
+These are installed automatically when running:
+
+```bash
+pip install -r requirements.txt
+```
+
+---
+
+## 📅 Installation Steps
+
+### Main Bot Installation
+
+1. **Clone the Repository**
 
    ```bash
    git clone https://github.com/livexords-nw/otter-loot-bot.git
    ```
 
-2. **Navigate to the Project Folder**  
-   Move to the project directory:
+2. **Navigate to the Project Folder**
 
    ```bash
    cd otter-loot-bot
    ```
 
-3. **Install Dependencies**  
-   Install the required libraries:
+3. **Install Dependencies**
 
    ```bash
    pip install -r requirements.txt
    ```
 
-4. **Configure Query**  
-   Create a `query.txt` file and add your Otter Loot query data.
+4. **Configure Your Query**
+
+   Create a file named `query.txt` and add your query data.
 
 5. **Set Up Proxy (Optional)**  
    To use a proxy, create a `proxy.txt` file and add proxies in the format:
@@ -109,10 +154,9 @@ Below is the updated configuration file. Adjust these settings as needed:
    http://username:password@ip:port
    ```
 
-   - Only HTTP and HTTPS proxies are supported.
+   _Only HTTP and HTTPS proxies are supported._
 
-6. **Run the Bot**  
-   Execute the bot using the following command:
+6. **Run Bot**
 
    ```bash
    python main.py
@@ -120,26 +164,70 @@ Below is the updated configuration file. Adjust these settings as needed:
 
 ---
 
-## 🚀 **Key Features Overview**
+### 🔹 Want Free Proxies?
 
-- **Auto Spin**: Automatically perform spin actions.
-- **Auto Quest Completion**: Complete quests without manual effort.
-- **Auto Otter Management**: Optimize and manage Otters seamlessly.
-- **Auto Buy Pack**: Automatically purchase packs.
-- **Multi-Account Support**: Run multiple accounts simultaneously.
-- **Delay Loop and Account Switching**: Set intervals for looping and account transitions.
-- **Proxy Support**: Optionally route your requests through proxies by enabling the feature in `config.json` and providing proxy details in `proxy.txt`.
+You can obtain free proxies from [Webshare.io](https://www.webshare.io/).
 
 ---
 
-## 🛠️ **Contributing**
+## 📂 Project Structure
 
-This project is developed by **LIVEXORDS**. If you have suggestions, questions, or would like to contribute, feel free to contact us:
+```
+Otter Loot-bot/
+├── .github/
+│   └── workflows/
+│       └── ci.yml              # GitHub Actions CI workflow for automated checks/deploys
+├── config.json                 # Main configuration file for the bot
+├── query.txt                   # Contains query data to be processed
+├── proxy.txt                   # (Optional) Proxy list (HTTP/HTTPS) to use for multi-account support
+├── main.py                     # Main Python script (entry point of the bot)
+├── requirements.txt            # Python dependencies required to run the bot
+├── LICENSE                     # License for the project
+└── README.md                   # Documentation and feature list
+```
+
+---
+
+## 🛠️ Contributing
+
+This project is developed by **Livexords**.  
+If you have ideas, questions, or want to contribute, please join our Telegram group for discussions and updates.  
+For contribution guidelines, please consider:
+
+- **Code Style:** Follow standard Python coding conventions.
+- **Pull Requests:** Test your changes before submitting a PR.
+- **Feature Requests & Bugs:** Report and discuss via our Telegram group.
 
 <div align="center">
   <a href="https://t.me/livexordsscript" target="_blank">
-    <img src="https://img.shields.io/static/v1?message=LIVEXORDS&logo=telegram&label=&color=2CA5E0&logoColor=white&labelColor=&style=for-the-badge" height="25" alt="telegram logo" />
+    <img src="https://img.shields.io/badge/Join-Telegram%20Group-2CA5E0?logo=telegram&style=for-the-badge" height="25" alt="Telegram Group" />
   </a>
 </div>
+
+---
+
+## 📖 License
+
+This project is licensed under the **MIT License**.  
+See the [LICENSE](LICENSE) file for more details.
+
+---
+
+## 🔍 Usage Example
+
+After installation and configuration, simply run:
+
+```bash
+python main.py
+```
+
+You should see output indicating the bot has started its operations. For further instructions or troubleshooting, please check our Telegram group or open an issue in the repository.
+
+---
+
+## 📣 Community & Support
+
+For support, updates, and feature requests, join our Telegram group.  
+This is the central hub for all discussions related to Otter Loot Bot, including roadmap ideas and bug fixes.
 
 ---
