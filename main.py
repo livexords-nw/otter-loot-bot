@@ -1,9 +1,17 @@
 from datetime import datetime
-import json
 import time
 from colorama import Fore
 import requests
 import random
+from fake_useragent import UserAgent
+import asyncio
+import json
+import gzip
+import brotli
+import zlib
+import chardet
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 class otterloot:
     BASE_URL = "https://otter-game-service.otterloot.io/api/"
@@ -25,9 +33,11 @@ class otterloot:
     }
 
     def __init__(self):
+        self.config = self.load_config()
         self.query_list = self.load_query("query.txt")
         self.token = None
         self.energy = 0
+        self.session = self.sessions()
         self._original_requests = {
             "get": requests.get,
             "post": requests.post,
@@ -35,7 +45,6 @@ class otterloot:
             "delete": requests.delete,
         }
         self.proxy_session = None
-        self.config = self.load_config()
 
     def banner(self) -> None:
         """Displays the banner for the bot."""
@@ -53,6 +62,68 @@ class otterloot:
             + safe_message
             + Fore.RESET
         )
+    
+    def sessions(self):
+        session = requests.Session()
+        retries = Retry(
+            total=3, backoff_factor=1, status_forcelist=[500, 502, 503, 504, 520]
+        )
+        session.mount("https://", HTTPAdapter(max_retries=retries))
+        return session
+
+    def decode_response(self, response):
+        """
+        Mendekode response dari server secara umum.
+
+        Parameter:
+            response: objek requests.Response
+
+        Mengembalikan:
+            - Jika Content-Type mengandung 'application/json', maka mengembalikan objek Python (dict atau list) hasil parsing JSON.
+            - Jika bukan JSON, maka mengembalikan string hasil decode.
+        """
+        # Ambil header
+        content_encoding = response.headers.get("Content-Encoding", "").lower()
+        content_type = response.headers.get("Content-Type", "").lower()
+
+        # Tentukan charset dari Content-Type, default ke utf-8
+        charset = "utf-8"
+        if "charset=" in content_type:
+            charset = content_type.split("charset=")[-1].split(";")[0].strip()
+
+        # Ambil data mentah
+        data = response.content
+
+        # Dekompresi jika perlu
+        try:
+            if content_encoding == "gzip":
+                data = gzip.decompress(data)
+            elif content_encoding in ["br", "brotli"]:
+                data = brotli.decompress(data)
+            elif content_encoding in ["deflate", "zlib"]:
+                data = zlib.decompress(data)
+        except Exception:
+            # Jika dekompresi gagal, lanjutkan dengan data asli
+            pass
+
+        # Coba decode menggunakan charset yang didapat
+        try:
+            text = data.decode(charset)
+        except Exception:
+            # Fallback: deteksi encoding dengan chardet
+            detection = chardet.detect(data)
+            detected_encoding = detection.get("encoding", "utf-8")
+            text = data.decode(detected_encoding, errors="replace")
+
+        # Jika konten berupa JSON, kembalikan hasil parsing JSON
+        if "application/json" in content_type:
+            try:
+                return json.loads(text)
+            except Exception:
+                # Jika parsing JSON gagal, kembalikan string hasil decode
+                return text
+        else:
+            return text
 
     def load_config(self) -> dict:
         """
@@ -302,7 +373,12 @@ class otterloot:
     def spin(self) -> None:
         """Performs a spin in the game and handles rewards, stealing logic, or raids."""
         self.info_game()
-        while self.energy > 0:
+        while True:
+            if self.energy <= 0:
+                self.log("🔄 Energy depleted. Updating game information...", Fore.BLUE)
+                self.info_game()
+                break
+            
             time.sleep(1)
             req_url_spin = f"{self.BASE_URL}v1/game/spin"
             headers = {**self.HEADERS, "authorization": f"Bearer {self.token}"}
@@ -390,10 +466,6 @@ class otterloot:
                     self.log(f"📄 Response content: {response.text}", Fore.RED)
                 except Exception:
                     pass
-
-            if self.energy == 0:
-                self.log("🔄 Energy depleted. Updating game information...", Fore.BLUE)
-                self.info_game()
 
     def perform_raid(self) -> None:
         """Handles raid logic when all slots are 4."""
@@ -595,261 +667,208 @@ class otterloot:
             self.log("🛑 Maximum number of attempts reached. Stopping.", Fore.RED)
 
     def quest(self) -> None:
-        """Fetches available quests and special quests, then attempts to complete them."""
+        """Fetches and completes both regular and special quests in distinct phases."""
 
-        def fetch_and_complete_quests(
-            req_url: str, quest_type: str, complete_url: str = None
-        ) -> None:
+        def complete_quests(req_url: str, quest_type: str, complete_url: str = None) -> None:
             headers = {**self.HEADERS, "authorization": f"Bearer {self.token}"}
 
-            try:
-                self.log(f"📋 Fetching {quest_type} quests...", Fore.CYAN)
-                response = requests.get(req_url, headers=headers)
-                response.raise_for_status()
+            def fetch_quest_list():
+                """📥 Phase 1: Fetch quest list"""
+                self.log(f"📋 Fetching {quest_type} quests list...", Fore.CYAN)
+                try:
+                    response = requests.get(req_url, headers=headers)
+                    response.raise_for_status()
+                    quest_data = self.decode_response(response)
+                    if not quest_data.get("success", False):
+                        self.log(f"⚠️ Failed to fetch {quest_type} quests list.", Fore.YELLOW)
+                        return []
+                    return quest_data.get("data", {}).get("quests", [])
+                except Exception as e:
+                    self.log(f"❌ Error while fetching {quest_type} quests: {e}", Fore.RED)
+                    return []
 
-                quest_data = response.json()
-                if not quest_data.get("success", False):
-                    self.log(f"⚠️ Failed to fetch {quest_type} quest list.", Fore.YELLOW)
-                    return
+            def try_complete_quest(quest):
+                """🚀 Phase 2: Try to complete quest"""
+                quest_id = quest.get("questID")
+                description = quest.get("description", "No description")
+                status = quest.get("questStatus")
+                if status != 1:
+                    return False
 
-                quests = quest_data.get("data", {}).get("quests", [])
-                if not quests:
-                    self.log(f"⚠️ No available {quest_type} quests.", Fore.YELLOW)
-                    return
+                payload = {"questID": quest_id}
+                req_url_quest = complete_url or f"{self.BASE_URL}v1/quest/do"
+                self.log(f"🗺️ Attempting {quest_type} quest {quest_id} ➜ {description}", Fore.CYAN)
 
-                for quest in quests:
-                    quest_id = quest.get("questID")
-                    quest_status = quest.get("questStatus")
+                try:
+                    res = requests.post(req_url_quest, headers=headers, json=payload)
+                    res.raise_for_status()
+                    result = self.decode_response(res)
 
-                    # Skip if quest is already completed
-                    if quest_status != 1:
-                        continue
+                    if not result.get("success", False):
+                        self.log(f"⚠️ Quest {quest_id} failed to complete.", Fore.YELLOW)
+                        return False
 
-                    self.log(str({"questID": quest_id}))
-                    payload = {"questID": quest_id}
-                    req_url_quest = complete_url or f"{self.BASE_URL}v1/quest/do"
+                    data = result.get("data", {})
+                    quest_done_id = data.get("questDoneID", "Unknown")
+                    self.log(f"✅ {quest_type.capitalize()} quest {quest_done_id} completed successfully!", Fore.LIGHTGREEN_EX)
 
-                    try:
-                        self.log(
-                            f"🗺️ Attempting {quest_type} quest ID: {quest_id} - {quest.get('description', 'No description')}...",
-                            Fore.CYAN,
-                        )
-                        response = requests.post(
-                            req_url_quest, headers=headers, json=payload
-                        )
-                        response.raise_for_status()
+                    # 🎁 Phase 3: Reward handling
+                    rewards = data.get("rewards", [])
+                    if rewards:
+                        self.log(f"🎁 Rewards received:", Fore.LIGHTGREEN_EX)
+                        for r in rewards:
+                            kind = r.get("kind", "Unknown")
+                            reward_type = r.get("type", "Unknown")
+                            amount = r.get("amount", {}).get("value", 0)
+                            self.log(f"  🪙 {kind} - {reward_type}: {amount}", Fore.GREEN)
+                    else:
+                        self.log(f"🎁 No rewards for quest {quest_id}.", Fore.YELLOW)
+                    return True
 
-                        quest_done_data = response.json()
-                        if not quest_done_data.get("success", False):
-                            self.log(
-                                f"⚠️ {quest_type} quest ID {quest_id} failed or is not available.",
-                                Fore.YELLOW,
-                            )
-                            continue
+                except Exception as e:
+                    self.log(f"❌ Failed to complete quest {quest_id}: {e}", Fore.RED)
+                    return False
 
-                        data = quest_done_data.get("data", {})
-                        if not data:
-                            self.log(
-                                f"⚠️ No data received for {quest_type} quest ID {quest_id}.",
-                                Fore.YELLOW,
-                            )
-                            continue
+            # 🌀 Phase 0: Execute all phases
+            quests = fetch_quest_list()
+            if not quests:
+                self.log(f"⚠️ No available {quest_type} quests.", Fore.YELLOW)
+                return
 
-                        # Log quest completion
-                        quest_done_id = data.get("questDoneID", "Unknown")
-                        self.log(
-                            f"✅ {quest_type.capitalize()} quest {quest_done_id} completed successfully!",
-                            Fore.LIGHTGREEN_EX,
-                        )
+            self.log(f"🔄 Processing {len(quests)} {quest_type} quests...", Fore.LIGHTMAGENTA_EX)
+            completed_count = 0
+            for q in quests:
+                if try_complete_quest(q):
+                    completed_count += 1
 
-                        # Handle rewards
-                        rewards = data.get("rewards", [])
-                        if rewards:
-                            for reward in rewards:
-                                kind = reward.get("kind", "Unknown")
-                                reward_type = reward.get("type", "Unknown")
-                                amount = reward.get("amount", {}).get("value", 0)
-                                self.log(
-                                    f"🎁 Reward: Kind {kind}, Type {reward_type}, Amount: {amount}",
-                                    Fore.LIGHTGREEN_EX,
-                                )
-                        else:
-                            self.log(
-                                f"🎁 No rewards for {quest_type} quest ID {quest_done_id}.",
-                                Fore.YELLOW,
-                            )
+            self.log(f"🏁 {completed_count}/{len(quests)} {quest_type} quests completed.\n", Fore.LIGHTBLUE_EX)
 
-                    except requests.exceptions.RequestException as e:
-                        self.log(
-                            f"❌ Failed to perform {quest_type} quest ID {quest_id}: {e}",
-                            Fore.RED,
-                        )
-                        self.log(f"📄 Response content: {response.text}", Fore.RED)
-                    except ValueError as e:
-                        self.log(
-                            f"❌ Data error for {quest_type} quest ID {quest_id}: {e}",
-                            Fore.RED,
-                        )
-                        self.log(f"📄 Response content: {response.text}", Fore.RED)
-                    except Exception as e:
-                        self.log(
-                            f"❗ An unexpected error occurred for {quest_type} quest ID {quest_id}: {e}",
-                            Fore.RED,
-                        )
-                        self.log(f"📄 Response content: {response.text}", Fore.RED)
-
-            except requests.exceptions.RequestException as e:
-                self.log(f"❌ Failed to fetch {quest_type} quest list: {e}", Fore.RED)
-                self.log(f"📄 Response content: {response.text}", Fore.RED)
-            except ValueError as e:
-                self.log(
-                    f"❌ Data error while fetching {quest_type} quest list: {e}",
-                    Fore.RED,
-                )
-                self.log(f"📄 Response content: {response.text}", Fore.RED)
-            except Exception as e:
-                self.log(
-                    f"❗ An unexpected error occurred while fetching {quest_type} quest list: {e}",
-                    Fore.RED,
-                )
-                self.log(f"📄 Response content: {response.text}", Fore.RED)
-
-        # Process regular quests
-        fetch_and_complete_quests(f"{self.BASE_URL}v1/quest", "regular")
-
-        # Process special quests
-        fetch_and_complete_quests(
+        # 🔁 Run for both regular and special quests
+        complete_quests(f"{self.BASE_URL}v1/quest", "regular")
+        complete_quests(
             req_url=f"{self.BASE_URL}v1/special-quest",
             quest_type="special",
-            complete_url=f"{self.BASE_URL}v1/special-quest/do",
+            complete_url=f"{self.BASE_URL}v1/special-quest/do"
         )
 
     def otter(self) -> None:
-        """Fetches Otter details, repairs broken parts, and upgrades parts until max or limit reached."""
-        req_url_otter = f"{self.BASE_URL}v1/otter"
+        """Fetches Otter details, repairs broken parts, upgrades parts until max or limit reached,
+        and then lists the final Otter details."""
+        info_url = f"{self.BASE_URL}v1/game/info"
+        repair_url = f"{self.BASE_URL}v1/otter/repair"
+        upgrade_url = f"{self.BASE_URL}v1/otter/upgrade"
         headers = {**self.HEADERS, "authorization": f"Bearer {self.token}"}
+        total_medals = 0
+
+        def fetch_otter_info():
+            """Helper to fetch and return fresh otter info."""
+            res = requests.get(info_url, headers=headers)
+            res.raise_for_status()
+            data = self.decode_response(res)
+            if not data.get("success", False):
+                raise Exception("Failed to fetch Otter info")
+            return data["data"]["target"]["otter"]
 
         try:
-            # Fetch Otter details
             self.log("🐾 Fetching Otter details...", Fore.CYAN)
-            response = requests.get(req_url_otter, headers=headers)
-            response.raise_for_status()
-
-            otter_data = response.json()
-            if not otter_data.get("success", False):
-                self.log("⚠️ Failed to fetch Otter details.", Fore.YELLOW)
-                return
-
-            data = otter_data.get("data", {})
-            if not data:
-                self.log("⚠️ No data received for Otter details.", Fore.YELLOW)
-                return
-
-            parts = data.get("parts", [])
-            total_stars = data.get("totalStars", 0)
+            otter = fetch_otter_info()
             self.log(
-                f"🦦 Otter Level: {data.get('level', 0)} | Total Stars: {total_stars}",
+                f"🦦 Otter Level: {otter.get('level', 0)} | Total Stars: {otter.get('totalStars', 0)}",
                 Fore.LIGHTGREEN_EX,
             )
 
-            total_medals = 0  # Track total medals earned
+            # Simpan part yang sudah terbukti tidak bisa diperbaiki (misalnya error 500) agar tidak diulang
+            non_repairable_parts = set()
 
-            # Repair broken parts
-            for part in parts:
-                try:
-                    if part.get("broken", False):
-                        part_type = part.get("type")
-                        self.log(
-                            f"🔧 Repairing broken part type {part_type}...", Fore.YELLOW
-                        )
-                        repair_url = f"{self.BASE_URL}v1/otter/repair"
-                        repair_response = requests.post(
-                            repair_url, headers=headers, json=repair_payload
-                        )
-                        repair_response.raise_for_status()
-                        repair_data = repair_response.json()
-                        if repair_data.get("success", False):
+            # --- Repair Phase ---
+            while True:
+                otter = fetch_otter_info()  # Refresh info di tiap iterasi
+                parts = otter.get("parts", [])
+                # Hanya part yang rusak (broken == False) dan belum ditandai sebagai non-repairable
+                repairable_parts = [p for p in parts if (p.get("broken", True) is False)
+                                    and (p.get("type") not in non_repairable_parts)]
+                if not repairable_parts:
+                    self.log("✅ No parts need repair or all are marked non-repairable. Exiting repair phase.", Fore.LIGHTGREEN_EX)
+                    break
+
+                any_repaired = False
+                for part in repairable_parts:
+                    part_type = part.get("type")
+                    self.log(f"🔧 Repairing part: {part_type}", Fore.YELLOW)
+                    try:
+                        res = requests.post(repair_url, headers=headers, json={"part": part_type})
+                        res.raise_for_status()
+                        data = self.decode_response(res)
+                        if data.get("success", False):
                             self.log("✅ Repair successful!", Fore.LIGHTGREEN_EX)
+                            any_repaired = True
                         else:
+                            self.log(f"❌ Repair failed: {data.get('message', 'Unknown')}", Fore.RED)
+                            if res.status_code == 500:
+                                non_repairable_parts.add(part_type)
+                        # Selalu refresh data setelah setiap percobaan repair
+                        otter = fetch_otter_info()
+                    except Exception as e:
+                        self.log(f"❌ Repair error: {e}", Fore.RED)
+                        if "500" in str(e):
+                            non_repairable_parts.add(part_type)
+                        otter = fetch_otter_info()
+                if not any_repaired:
+                    self.log("❗ No successful repairs in this iteration. Exiting repair phase.", Fore.YELLOW)
+                    break
+
+            # --- Upgrade Phase ---
+            while True:
+                otter = fetch_otter_info()  # Refresh info di tiap iterasi
+                upgraded_any = False
+                parts = otter.get("parts", [])
+                # Untuk upgrade: part harus tidak rusak (broken == True) dan stars kurang dari 3
+                for part in parts:
+                    part_type = part.get("type")
+                    stars = part.get("stars", 0)
+                    if part.get("broken", True) is False or stars >= 3:
+                        continue
+
+                    self.log(f"⬆️ Upgrading part: {part_type}", Fore.CYAN)
+                    try:
+                        res = requests.post(upgrade_url, headers=headers, json={"part": part_type})
+                        res.raise_for_status()
+                        data = self.decode_response(res)
+                        if data.get("success", False):
+                            medal = data.get("data", {}).get("medal", 0)
+                            total_medals += medal
                             self.log(
-                                f"❌ Repair failed for part type {part_type}.", Fore.RED
+                                f"🏅 Upgrade success! +{medal} medals (Total: {total_medals})",
+                                Fore.LIGHTGREEN_EX,
                             )
-                            self.log(f"📄 Response content: {response.text}", Fore.RED)
-                except Exception as e:
-                    self.log(
-                        f"❌ Error repairing part type {part.get('type')}: {e}",
-                        Fore.RED,
-                    )
-                    self.log(f"📄 Response content: {response.text}", Fore.RED)
-
-            # Upgrade parts
-            for part in parts:
-                try:
-                    while total_medals < 200:  # Loop until we reach the medal limit
-                        if part.get("stars", 0) < 3 and not part.get("broken", False):
-                            part_type = part.get("type")
-                            self.log(f"⬆️ Upgrading part type {part_type}...", Fore.CYAN)
-                            upgrade_url = f"{self.BASE_URL}v1/otter/upgrade"
-                            self.log(f" Tipe: {type(part_type)}")
-                            upgrade_payload = {"part": part_type}
-                            upgrade_response = requests.post(
-                                upgrade_url, headers=headers, json=upgrade_payload
-                            )
-                            upgrade_response.raise_for_status()
-                            upgrade_data = upgrade_response.json()
-
-                            if upgrade_data.get("success", False):
-                                # Check if the error is due to insufficient coins
-                                if (
-                                    "not enough coins"
-                                    in upgrade_data.get("message", "").lower()
-                                ):
-                                    self.log(
-                                        f"💰 Not enough coins to upgrade part type {part_type}.",
-                                        Fore.RED,
-                                    )
-                                else:
-                                    self.log(
-                                        f"❌ Upgrade failed for part type {part_type}.",
-                                        Fore.RED,
-                                    )
-                            else:
-                                medal = upgrade_data.get("data", {}).get("medal", 0)
-                                total_medals += medal
-                                self.log(
-                                    f"🏅 Upgrade successful! Earned {medal} medals. Total medals: {total_medals}",
-                                    Fore.LIGHTGREEN_EX,
-                                )
-
-                                if total_medals >= 200:
-                                    self.log(
-                                        "🏁 Total medals reached 200. Stopping upgrades.",
-                                        Fore.LIGHTMAGENTA_EX,
-                                    )
-                                    break
+                            upgraded_any = True
                         else:
-                            break
-                except Exception as e:
-                    self.log(
-                        f"❌ Error upgrading part type {part.get('type')}: {e}",
-                        Fore.RED,
-                    )
-                    self.log(f"📄 Response content: {upgrade_response.text}", Fore.RED)
+                            msg = data.get("message", "").lower()
+                            if "not enough coins" in msg:
+                                self.log("💰 Not enough coins to upgrade.", Fore.RED)
+                            else:
+                                self.log(f"❌ Upgrade failed: {msg}", Fore.RED)
+                        # Refresh data setelah setiap percobaan upgrade
+                        otter = fetch_otter_info()
+                    except Exception as e:
+                        self.log(f"❌ Upgrade error: {e}", Fore.RED)
+                        otter = fetch_otter_info()
+                if not upgraded_any:
+                    self.log("✅ No parts eligible for upgrade. Exiting upgrade phase.", Fore.LIGHTGREEN_EX)
+                    break
 
-            self.log("✅ Finished processing all parts.", Fore.LIGHTMAGENTA_EX)
+            # Tampilkan status akhir Otter setelah semua proses repair dan upgrade
+            otter = fetch_otter_info()
+            self.log("✅ All possible upgrades and repairs completed.", Fore.LIGHTMAGENTA_EX)
+            self.log(
+                f"🦦 Final Otter Level: {otter.get('level', 0)} | Total Stars: {otter.get('totalStars', 0)}",
+                Fore.LIGHTGREEN_EX,
+            )
 
         except requests.exceptions.RequestException as e:
-            self.log(f"❌ Failed to perform Otter operations: {e}", Fore.RED)
-            self.log(f"📄 Response content: {response.text}", Fore.RED)
-        except ValueError as e:
-            self.log(f"❌ Data error during Otter operations: {e}", Fore.RED)
-            self.log(f"📄 Response content: {response.text}", Fore.RED)
+            self.log(f"❌ Network error: {e}", Fore.RED)
         except Exception as e:
-            self.log(
-                f"❗ An unexpected error occurred during Otter operations: {e}",
-                Fore.RED,
-            )
-            self.log(f"📄 Response content: {response.text}", Fore.RED)
+            self.log(f"❗ Unexpected error: {e}", Fore.RED)
 
     def buy(self, type: str = "gold") -> None:
         """Handles purchase operations in the Otter game.
@@ -985,76 +1004,108 @@ class otterloot:
             requests.put = self._original_requests["put"]
             requests.delete = self._original_requests["delete"]
 
-if __name__ == "__main__":
-    otter = otterloot()
-    index = 0
-    max_index = len(otter.query_list)
+async def process_account(account, original_index, account_label, otter, config):
+
+    ua = UserAgent()
+    otter.HEADERS["user-agent"] = ua.random
+
+    # Menampilkan informasi akun
+    display_account = account[:10] + "..." if len(account) > 10 else account
+    otter.log(f"👤 Processing {account_label}: {display_account}", Fore.YELLOW)
+
+    # Override proxy jika diaktifkan
+    if config.get("proxy", False):
+        otter.override_requests()
+    else:
+        otter.log("[CONFIG] Proxy: ❌ Disabled", Fore.RED)
+
+    # Login (fungsi blocking, dijalankan di thread terpisah) dengan menggunakan index asli (integer)
+    await asyncio.to_thread(otter.login, original_index)
+
+    otter.log("🛠️ Starting task execution...", Fore.CYAN)
+    tasks_config = {
+        "buy": "💰 Purchase Items",
+        "spin": "🎰 Spin the Wheel",
+        "quest": "📜 Quest Solver",
+        "otter": "🦦 Otter Manager",
+    }
+
+    for task_key, task_name in tasks_config.items():
+        task_status = config.get(task_key, False)
+        color = Fore.YELLOW if task_status else Fore.RED
+        otter.log(
+            f"[CONFIG] {task_name}: {'✅ Enabled' if task_status else '❌ Disabled'}",
+            color,
+        )
+        if task_status:
+            otter.log(f"🔄 Executing {task_name}...", Fore.CYAN)
+            await asyncio.to_thread(getattr(otter, task_key))
+
+    delay_switch = config.get("delay_account_switch", 10)
+    otter.log(
+        f"➡️ Finished processing {account_label}. Waiting {Fore.WHITE}{delay_switch}{Fore.CYAN} seconds before next account.",
+        Fore.CYAN,
+    )
+    await asyncio.sleep(delay_switch)
+
+
+async def worker(worker_id, otter, config, queue):
+    """
+    Setiap worker akan mengambil satu akun dari antrian dan memprosesnya secara berurutan.
+    Worker tidak akan mengambil akun baru sebelum akun sebelumnya selesai diproses.
+    """
+    while True:
+        try:
+            original_index, account = queue.get_nowait()
+        except asyncio.QueueEmpty:
+            break
+        account_label = f"Worker-{worker_id} Account-{original_index+1}"
+        await process_account(account, original_index, account_label, otter, config)
+        queue.task_done()
+    otter.log(f"Worker-{worker_id} finished processing all assigned accounts.", Fore.CYAN)
+
+
+async def main():
+    otter = otterloot()  
     config = otter.load_config()
+    all_accounts = otter.query_list
+    num_threads = config.get("thread", 1)  # Jumlah worker sesuai konfigurasi
+
     if config.get("proxy", False):
         proxies = otter.load_proxies()
 
     otter.log(
-        "🎉 [LIVEXORDS] === Welcome to Otter Loot Automation === [LIVEXORDS]",
-        Fore.YELLOW,
+        "🎉 [LIVEXORDS] === Welcome to Otter Loot Automation === [LIVEXORDS]", Fore.YELLOW
     )
-    otter.log(f"📂 Loaded {max_index} accounts from query list.", Fore.LIGHTBLUE_EX)
+    otter.log(f"📂 Loaded {len(all_accounts)} accounts from query list.", Fore.YELLOW)
 
     while True:
-        current_account = otter.query_list[index]
-        display_account = (
-            current_account[:10] + "..."
-            if len(current_account) > 10
-            else current_account
-        )
+        # Buat queue baru dan masukkan semua akun (dengan index asli)
+        queue = asyncio.Queue()
+        for idx, account in enumerate(all_accounts):
+            queue.put_nowait((idx, account))
 
+        # Buat task worker sesuai dengan jumlah thread yang diinginkan
+        workers = [
+            asyncio.create_task(worker(i + 1, otter, config, queue))
+            for i in range(num_threads)
+        ]
+
+        # Tunggu hingga semua akun di queue telah diproses
+        await queue.join()
+
+        # Opsional: batalkan task worker (agar tidak terjadi tumpang tindih)
+        for w in workers:
+            w.cancel()
+
+        otter.log("🔁 All accounts processed. Restarting loop.", Fore.CYAN)
+        delay_loop = config.get("delay_loop", 30)
         otter.log(
-            f"👤 [ACCOUNT] Processing account {index + 1}/{max_index}: {display_account}",
-            Fore.LIGHTGREEN_EX,
+            f"⏳ Sleeping for {Fore.WHITE}{delay_loop}{Fore.CYAN} seconds before restarting.",
+            Fore.CYAN,
         )
+        await asyncio.sleep(delay_loop)
 
-        if config.get("proxy", False):
-            otter.override_requests()
-        else:
-            otter.log("[CONFIG] Proxy: ❌ Disabled", Fore.RED)
 
-        otter.login(index)
-        otter.info()
-
-        otter.log("🛠️ Starting task execution...", Fore.CYAN)
-        tasks = {
-            "buy": "💰 Purchase Items",
-            "spin": "🎰 Spin the Wheel",
-            "quest": "📜 Quest Solver",
-            "otter": "🦦 Otter Manager",
-        }
-
-        for task_key, task_name in tasks.items():
-            task_status = config.get(task_key, False)
-            otter.log(
-                f"[CONFIG] {task_name}: {'✅ Enabled' if task_status else '❌ Disabled'}",
-                Fore.YELLOW if task_status else Fore.RED,
-            )
-
-            if task_status:
-                otter.log(f"🔄 Executing {task_name}...", Fore.CYAN)
-                if task_key == "buy":
-                    type_buy = config.get("type_buy", "gold")
-                    otter.buy(type_buy)
-                else:
-                    getattr(otter, task_key)()
-
-        if index == max_index - 1:
-            otter.log("🔁 All accounts processed. Restarting loop.", Fore.LIGHTGREEN_EX)
-            otter.log(
-                f"⏳ Sleeping for {config.get('delay_loop', 30)} seconds before restarting.",
-                Fore.CYAN,
-            )
-            time.sleep(config.get("delay_loop", 30))
-            index = 0
-        else:
-            otter.log(
-                f"➡️ Switching to the next account in {config.get('delay_account_switch', 10)} seconds.",
-                Fore.CYAN,
-            )
-            time.sleep(config.get("delay_account_switch", 10))
-            index += 1
+if __name__ == "__main__":
+    asyncio.run(main())
